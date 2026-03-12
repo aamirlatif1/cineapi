@@ -20,7 +20,7 @@ uv tool install specify-cli --from git+https://github.com/github/spec-kit.git
 This was run in the project directory:
 
 ```bash
-specify init . --ai copilot
+specify init . --ai claude
 ```
 
 This scaffolded the spec-kit structure and installed the Copilot custom agents.
@@ -33,11 +33,11 @@ code .
 
 ## Step 4 — How to select a spec-kit agent
 
-All spec-kit agents are available in the Copilot Chat **Agent** mode. Open Copilot Chat, click the **Agent** dropdown (top-left of the chat input), and select the agent you want to invoke.
+All spec-kit commands are available in the claude cli. Open Claude code CLI.
 
 The agents available are:
 
-| Agent | Purpose |
+| Command | Purpose |
 |---|---|
 | `speckit.constitution` | Define project-wide principles and governance |
 | `speckit.specify` | Generate a feature specification from a description |
@@ -52,16 +52,11 @@ The agents available are:
 ---
 
 ## Step 5 — Establish project principles
-
-The **`speckit.constitution`** agent was invoked with:
-
 ```
-Create principles focused on code quality, testing standards, user experience
-consistency, and performance requirements. Include governance for how these
-principles should guide technical decisions and implementation choices.
+Fill the constitution with the bare miniumum requirements for a idiomatic golang based rest-api based backend. Follow Hexagonal architecture and clean code principles.
 ```
 
-This created `.specify/memory/constitution.md`, which all subsequent agents respected.
+This update `.specify/memory/constitution.md`, which all subsequent agents respected.
 
 ---
 
@@ -70,36 +65,35 @@ This created `.specify/memory/constitution.md`, which all subsequent agents resp
 The **`speckit.specify`** agent was invoked with:
 
 ```
-Create a web-based platform that can be used to capture performance analysis
-for LLM interactions / chats using prompt sent, tokens in, tokens out, time
-started, time ended, tools called, etceteras. Make it possible to store
-different iterations and make it possible to show graphs and all the other
-relevant ways that one can determine performance. Include a REST API so results
-can be uploaded. Include sample data so we can see how it would look like.
+CineAPI is a JSON-based RESTful API for retrieving and managing information about movies. It serves as a comprehensive movie database service — similar in concept to the Open Movie Database API — with full support for user authentication, movie CRUD operations, and application observability.
+
+Supported APIs
+| Method | URL Pattern | Action |
+|--------|-------------|--------|
+| `GET` | `/v1/healthcheck` | Show application health and version information |
+| `GET` | `/v1/movies` | Show the details of all movies |
+| `POST` | `/v1/movies` | Create a new movie |
+| `GET` | `/v1/movies/:id` | Show the details of a specific movie |
+| `PATCH` | `/v1/movies/:id` | Update the details of a specific movie |
+| `DELETE` | `/v1/movies/:id` | Delete a specific movie |
+| `POST` | `/v1/users` | Register a new user |
+| `PUT` | `/v1/users/activated` | Activate a specific user |
+| `PUT` | `/v1/users/password` | Update the password for a specific user |
+| `POST` | `/v1/tokens/authentication` | Generate a new authentication token |
+| `POST` | `/v1/tokens/password-reset` | Generate a new password-reset token |
+| `GET` | `/debug/vars` | Display application metrics |
 ```
 
 This created `specs/<feature>/spec.md`.
 
 ---
 
-## Step 7 — Clarify the specification
-
-The **`speckit.clarify`** agent was invoked with:
-
-```
-Execute
-```
-
-This asked up to 5 targeted questions to identify underspecified areas and encoded the answers back into the spec. See `specs/001-llm-perf-analytics/plan.md` for the resulting Q&As.
-
----
-
-## Step 8 — Create the implementation plan
+## Step 7 — Create the implementation plan
 
 The **`speckit.plan`** agent was invoked with:
 
 ```
-Use Spring Boot with an embedded React frontend using PostgreSQL and Docker compose
+I am going to use golang for restful API backend, use gorm and postgres database, use sample movie data. Use use chi router.
 ```
 
 This created `specs/<feature>/plan.md` with a technical design tailored to the spec and the constitution.

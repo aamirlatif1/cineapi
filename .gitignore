@@ -1,0 +1,18 @@
+# Environment
+.env
+
+# Build output
+bin/
+
+# Test binaries
+*.test
+
+# macOS
+.DS_Store
+
+# IDE
+.vscode/
+.idea/
+
+# Go workspace
+vendor/

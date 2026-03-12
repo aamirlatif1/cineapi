@@ -1,0 +1,635 @@
+openapi: "3.0.3"
+info:
+  title: CineAPI
+  version: "1.0.0"
+  description: >
+    JSON-based RESTful movie database service. Provides movie CRUD, user
+    registration and activation, bearer-token authentication, password reset,
+    health-check, and runtime metrics.
+
+servers:
+  - url: http://localhost:4000
+    description: Local development
+
+security: []
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      description: >
+        Authentication token obtained from POST /v1/tokens/authentication.
+        Include as: Authorization: Bearer <token>
+
+  schemas:
+    Movie:
+      type: object
+      properties:
+        id:
+          type: integer
+          format: int64
+          readOnly: true
+        title:
+          type: string
+          minLength: 1
+          maxLength: 500
+        year:
+          type: integer
+          format: int32
+          minimum: 1888
+        runtime:
+          type: string
+          description: Runtime in the format "N mins" (e.g., "152 mins")
+          example: "152 mins"
+        genres:
+          type: array
+          items:
+            type: string
+          minItems: 1
+          maxItems: 5
+        version:
+          type: integer
+          format: int32
+          readOnly: true
+      required: [title, year, runtime, genres]
+
+    MovieInput:
+      type: object
+      properties:
+        title:
+          type: string
+          minLength: 1
+          maxLength: 500
+        year:
+          type: integer
+          format: int32
+          minimum: 1888
+        runtime:
+          type: integer
+          format: int32
+          minimum: 1
+          description: Runtime in minutes
+        genres:
+          type: array
+          items:
+            type: string
+          minItems: 1
+          maxItems: 5
+      required: [title, year, runtime, genres]
+
+    MoviePatch:
+      type: object
+      description: >
+        All fields optional. Only supplied fields are updated. Must include
+        current version for optimistic concurrency control.
+      properties:
+        title:
+          type: string
+          minLength: 1
+          maxLength: 500
+          nullable: true
+        year:
+          type: integer
+          format: int32
+          minimum: 1888
+          nullable: true
+        runtime:
+          type: integer
+          format: int32
+          minimum: 1
+          nullable: true
+        genres:
+          type: array
+          items:
+            type: string
+          nullable: true
+        version:
+          type: integer
+          format: int32
+          description: Current version of the movie record (required for conflict detection)
+
+    PaginationMetadata:
+      type: object
+      properties:
+        current_page:
+          type: integer
+        page_size:
+          type: integer
+        first_page:
+          type: integer
+        last_page:
+          type: integer
+        total_records:
+          type: integer
+
+    User:
+      type: object
+      properties:
+        id:
+          type: integer
+          format: int64
+          readOnly: true
+        name:
+          type: string
+        email:
+          type: string
+          format: email
+        activated:
+          type: boolean
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+
+    UserRegistration:
+      type: object
+      required: [name, email, password]
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 500
+        email:
+          type: string
+          format: email
+          maxLength: 500
+        password:
+          type: string
+          minLength: 8
+          maxLength: 72
+
+    TokenResponse:
+      type: object
+      properties:
+        token:
+          type: string
+          description: Plaintext token (26-char base32). Returned once; not stored.
+        expiry:
+          type: string
+          format: date-time
+
+    ValidationError:
+      type: object
+      properties:
+        error:
+          type: object
+          additionalProperties:
+            type: string
+          description: Map of field name → error message
+
+    ErrorResponse:
+      type: object
+      properties:
+        error:
+          type: string
+
+  responses:
+    Unauthorized:
+      description: Missing or invalid authentication token
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            error: "you must be authenticated to access this resource"
+
+    Forbidden:
+      description: Account not activated
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            error: "your user account must be activated to access this resource"
+
+    NotFound:
+      description: Resource not found
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            error: "the requested resource could not be found"
+
+    Conflict:
+      description: Edit conflict (optimistic locking failure)
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            error: "unable to update the record due to an edit conflict, please try again"
+
+    UnprocessableEntity:
+      description: Validation error
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ValidationError'
+          example:
+            error:
+              title: "must be provided"
+              year: "must be greater than 1888"
+
+paths:
+  /v1/healthcheck:
+    get:
+      summary: Show application health and version information
+      operationId: healthcheck
+      security: []
+      responses:
+        "200":
+          description: Service is healthy
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: "available"
+                  system_info:
+                    type: object
+                    properties:
+                      environment:
+                        type: string
+                        example: "development"
+                      version:
+                        type: string
+                        example: "1.0.0"
+
+  /v1/movies:
+    get:
+      summary: List all movies (paginated, filterable, sortable)
+      operationId: listMovies
+      security: []
+      parameters:
+        - name: title
+          in: query
+          schema:
+            type: string
+          description: Case-insensitive substring filter on title
+        - name: genres
+          in: query
+          schema:
+            type: string
+          description: Comma-separated list of genres; all must be present
+          example: "drama,crime"
+        - name: page
+          in: query
+          schema:
+            type: integer
+            default: 1
+            minimum: 1
+            maximum: 10000000
+        - name: page_size
+          in: query
+          schema:
+            type: integer
+            default: 20
+            minimum: 1
+            maximum: 100
+        - name: sort
+          in: query
+          schema:
+            type: string
+            enum: [id, title, year, runtime, -id, -title, -year, -runtime]
+            default: id
+          description: Sort field; prefix with - for descending
+      responses:
+        "200":
+          description: Paginated list of movies
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  movies:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Movie'
+                  metadata:
+                    $ref: '#/components/schemas/PaginationMetadata'
+        "422":
+          $ref: '#/components/responses/UnprocessableEntity'
+
+    post:
+      summary: Create a new movie
+      operationId: createMovie
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MovieInput'
+      responses:
+        "201":
+          description: Movie created
+          headers:
+            Location:
+              schema:
+                type: string
+              example: "/v1/movies/42"
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  movie:
+                    $ref: '#/components/schemas/Movie'
+        "401":
+          $ref: '#/components/responses/Unauthorized'
+        "403":
+          $ref: '#/components/responses/Forbidden'
+        "422":
+          $ref: '#/components/responses/UnprocessableEntity'
+
+  /v1/movies/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: integer
+          format: int64
+          minimum: 1
+
+    get:
+      summary: Show the details of a specific movie
+      operationId: getMovie
+      security: []
+      responses:
+        "200":
+          description: Movie details
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  movie:
+                    $ref: '#/components/schemas/Movie'
+        "404":
+          $ref: '#/components/responses/NotFound'
+
+    patch:
+      summary: Update the details of a specific movie (partial update)
+      operationId: updateMovie
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MoviePatch'
+      responses:
+        "200":
+          description: Updated movie
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  movie:
+                    $ref: '#/components/schemas/Movie'
+        "401":
+          $ref: '#/components/responses/Unauthorized'
+        "403":
+          $ref: '#/components/responses/Forbidden'
+        "404":
+          $ref: '#/components/responses/NotFound'
+        "409":
+          $ref: '#/components/responses/Conflict'
+        "422":
+          $ref: '#/components/responses/UnprocessableEntity'
+
+    delete:
+      summary: Delete a specific movie
+      operationId: deleteMovie
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Movie deleted
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: "movie successfully deleted"
+        "401":
+          $ref: '#/components/responses/Unauthorized'
+        "403":
+          $ref: '#/components/responses/Forbidden'
+        "404":
+          $ref: '#/components/responses/NotFound'
+
+  /v1/users:
+    post:
+      summary: Register a new user
+      operationId: registerUser
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UserRegistration'
+      responses:
+        "202":
+          description: >
+            User registered. Account is inactive until activation token is submitted.
+            Activation token dispatched (logged to stdout in this implementation).
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  user:
+                    $ref: '#/components/schemas/User'
+        "409":
+          description: Email already registered
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          example:
+            error: "a user with this email address already exists"
+        "422":
+          $ref: '#/components/responses/UnprocessableEntity'
+
+  /v1/users/activated:
+    put:
+      summary: Activate a specific user
+      operationId: activateUser
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [token]
+              properties:
+                token:
+                  type: string
+                  description: Activation token from registration email
+                  minLength: 26
+                  maxLength: 26
+      responses:
+        "200":
+          description: User activated
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  user:
+                    $ref: '#/components/schemas/User'
+        "422":
+          $ref: '#/components/responses/UnprocessableEntity'
+
+  /v1/users/password:
+    put:
+      summary: Update the password for a specific user
+      operationId: updateUserPassword
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [password, token]
+              properties:
+                password:
+                  type: string
+                  minLength: 8
+                  maxLength: 72
+                  description: New password
+                token:
+                  type: string
+                  minLength: 26
+                  maxLength: 26
+                  description: Password-reset token
+      responses:
+        "200":
+          description: >
+            Password updated. All existing authentication tokens invalidated.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: "your password was successfully reset"
+        "422":
+          $ref: '#/components/responses/UnprocessableEntity'
+
+  /v1/tokens/authentication:
+    post:
+      summary: Generate a new authentication token
+      operationId: createAuthToken
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, password]
+              properties:
+                email:
+                  type: string
+                  format: email
+                password:
+                  type: string
+                  minLength: 8
+                  maxLength: 72
+      responses:
+        "201":
+          description: Authentication token created (valid 24 hours)
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  authentication_token:
+                    $ref: '#/components/schemas/TokenResponse'
+        "401":
+          description: Invalid credentials
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          example:
+            error: "invalid authentication credentials"
+        "422":
+          $ref: '#/components/responses/UnprocessableEntity'
+
+  /v1/tokens/password-reset:
+    post:
+      summary: Generate a new password-reset token
+      operationId: createPasswordResetToken
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email]
+              properties:
+                email:
+                  type: string
+                  format: email
+      responses:
+        "202":
+          description: >
+            Password-reset token dispatched (logged to stdout). Returns 202 even if
+            the email is not registered to prevent user enumeration.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: "an email will be sent to you containing password reset instructions"
+        "422":
+          $ref: '#/components/responses/UnprocessableEntity'
+
+  /debug/vars:
+    get:
+      summary: Display application metrics (expvar)
+      operationId: debugVars
+      security: []
+      description: >
+        Exposes stdlib expvar metrics as JSON. Assumed to be network-restricted
+        at the infrastructure level in production.
+      responses:
+        "200":
+          description: Runtime metrics
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  total_requests_received:
+                    type: integer
+                  total_responses_sent:
+                    type: integer
+                  total_processing_time_μs:
+                    type: integer
+                  cmdline:
+                    type: array
+                    items:
+                      type: string
+                  memstats:
+                    type: object
